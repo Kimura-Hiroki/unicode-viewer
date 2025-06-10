@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ユニコードビューア</title>
+  <style>
+    :root {
+      --bg-color: #fafafa;
+      --text-color: #222;
+      --accent-color: #005b96;
+      --item-bg: #fff;
+      --item-hover: #e0f7fa;
+      --font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
+      --sidebar-width: 260px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { display: flex; flex-direction: column; height: 100vh; font-family: var(--font-family); background: var(--bg-color); color: var(--text-color); }
+    .app-container { display: flex; flex: 1; overflow: hidden; }
+    .sidebar { width: var(--sidebar-width); background: var(--item-bg); border-right: 1px solid #ccc; padding: 1rem; display: flex; flex-direction: column; }
+    .sidebar h1 { font-size: 1.5rem; margin-bottom: 1rem; color: var(--accent-color); text-align: center; }
+    #searchInput { padding: 0.6rem; font-size: 1rem; border: 1px solid #bbb; border-radius: 4px; margin-bottom: 0.5rem; }
+    #searchBtn { padding: 0.6rem; font-size: 1rem; background: var(--accent-color); color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 1rem; }
+    nav ul { list-style: none; overflow-y: auto; flex: 1; }
+    nav li { padding: 0.5rem; margin-bottom: 0.25rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; }
+    nav li:hover, nav li.active { background: var(--item-hover); }
+    .main-content { flex: 1; overflow: auto; padding: 1rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 0.5rem; }
+    .grid-item {
+      position: relative;
+      background: var(--item-bg);
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 0.4rem;
+      text-align: center;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .grid-item:hover { background: var(--item-hover); transform: translateY(-2px); }
+    .code-label { position: absolute; top: 4px; left: 0; width: 100%; color: var(--accent-color); font-size: 0.65rem; text-align: center; }
+    .char-body { margin-top: 1.2rem; font-size: 1.4rem; line-height: 1; }
+    .highlight { background: var(--accent-color); color: #fff; }
+    .highlight .code-label { color: #fff; }
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; }
+    .hidden { display: none; }
+    .modal-content { position: relative; background: var(--item-bg); padding: 1.5rem; border-radius: 6px; width: 300px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .modal-close { position: absolute; top: 0.5rem; right: 0.75rem; font-size: 1.4rem; cursor: pointer; }
+    .modal-char { font-size: 3rem; margin-bottom: 0.5rem; }
+    .info-line { margin: 0.3rem 0; font-size: 0.9rem; }
+    #copyBtn { padding: 0.5rem 1rem; border: none; border-radius: 4px; background: var(--accent-color); color: #fff; cursor: pointer; margin-top: 0.8rem; }
+    footer { text-align: center; padding: 0.5rem; font-size: 0.8rem; background: #ececec; border-top: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <h1>ユニコードビューア</h1>
+      <input id="searchInput" type="text" placeholder="文字 か U+XXXXで検索">
+      <button id="searchBtn">検索</button>
+      <nav>
+        <ul id="blockList">
+          <li data-start="0x0000" data-end="0x007F">ラテン文字・ASCII</li>
+          <li data-start="0x0370" data-end="0x03FF">ギリシャ文字</li>
+          <li data-start="0x0600" data-end="0x06FF">アラビア文字</li>
+          <li data-start="0x3040" data-end="0x309F">ひらがな</li>
+          <li data-start="0x30A0" data-end="0x30FF">カタカナ</li>
+          <li data-start="0x3400" data-end="0x4DBF">CJK拡張A</li>
+          <li data-start="0x4E00" data-end="0x9FFF">漢字（CJK）</li>
+          <li data-start="0xAC00" data-end="0xD7AF">ハングル（韓国語）</li>
+          <li data-start="0x1F600" data-end="0x1F64F">絵文字</li>
+        </ul>
+      </nav>
+    </aside>
+    <main class="main-content">
+      <div id="grid" class="grid"></div>
+    </main>
+  </div>
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <span id="modalClose" class="modal-close">×</span>
+      <p class="modal-char" id="modalChar"></p>
+      <p class="info-line" id="infoPoint"></p>
+      <p class="info-line" id="infoUtf8"></p>
+      <button id="copyBtn">文字コードをコピー</button>
+    </div>
+  </div>
+  <footer>©2025 キムりん＠松本深志高校</footer>
+  <script>
+    (function() {
+      var currentLoadId = 0;
+      var blockList = document.getElementById('blockList');
+      var grid = document.getElementById('grid');
+      var searchInput = document.getElementById('searchInput');
+      var searchBtn = document.getElementById('searchBtn');
+      var modal = document.getElementById('modal');
+      var modalClose = document.getElementById('modalClose');
+      var modalChar = document.getElementById('modalChar');
+      var infoPoint = document.getElementById('infoPoint');
+      var infoUtf8 = document.getElementById('infoUtf8');
+      var copyBtn = document.getElementById('copyBtn');
+      var currentRange = null;
+
+      // ブロック選択
+      blockList.addEventListener('click', function(e) {
+        if (e.target.tagName === 'LI') {
+          Array.prototype.forEach.call(blockList.children, function(li) { li.classList.remove('active'); });
+          e.target.classList.add('active');
+          var start = Number(e.target.dataset.start);
+          var end = Number(e.target.dataset.end);
+          currentRange = { start: start, end: end };
+          loadBlock(start, end);
+        }
+      });
+
+      // 初期表示
+      if (blockList.children.length > 0) blockList.children[0].click();
+
+      // 検索
+      searchBtn.addEventListener('click', jumpToCode);
+      searchInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') jumpToCode(); });
+
+      function jumpToCode() {
+        if (!currentRange) return;
+        var val = searchInput.value.trim().toUpperCase();
+        var cp = null;
+        if (/^U\+[0-9A-F]+$/.test(val)) cp = parseInt(val.slice(2), 16);
+        else if (/^[0-9A-F]+$/.test(val)) cp = parseInt(val, 16);
+        else if (val.length === 1) cp = val.codePointAt(0);
+        if (cp !== null) {
+          var id = 'cp-' + cp.toString(16).toUpperCase().padStart(4, '0');
+          var el = document.getElementById(id);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('highlight');
+            setTimeout(function() { el.classList.remove('highlight'); }, 5000);
+          }
+        }
+      }
+
+      function loadBlock(start, end) {
+        currentLoadId++;
+        var thisLoad = currentLoadId;
+        grid.innerHTML = '';
+        var current = start;
+        var CHUNK = 256;
+        var schedule = window.requestIdleCallback || function(cb) { setTimeout(cb, 0); };
+        function renderChunk() {
+          if (thisLoad !== currentLoadId) return;
+          var frag = document.createDocumentFragment();
+          for (var i = 0; i < CHUNK && current <= end; i++) {
+            (function(cp) {
+              var cell = document.createElement('div');
+              cell.className = 'grid-item';
+              var hex = cp.toString(16).toUpperCase().padStart(4, '0');
+              var label = document.createElement('div');
+              label.className = 'code-label';
+              label.textContent = 'U+' + hex;
+              cell.appendChild(label);
+              var charElem = document.createElement('div');
+              charElem.className = 'char-body';
+              charElem.textContent = String.fromCodePoint(cp);
+              cell.appendChild(charElem);
+              cell.id = 'cp-' + hex;
+              cell.addEventListener('click', function() { showModal(cp); });
+              frag.appendChild(cell);
+            })(current);
+            current++;
+          }
+          grid.appendChild(frag);
+          if (current <= end) schedule(renderChunk);
+        }
+        renderChunk();
+      }
+
+      function showModal(cp) {
+        modal.classList.remove('hidden');
+        var hex = cp.toString(16).toUpperCase().padStart(4, '0');
+        modalChar.textContent = String.fromCodePoint(cp);
+        infoPoint.textContent = '文字コード：U+' + hex + ' (' + cp + ')';
+        infoUtf8.textContent = 'UTF-8バイト：' + toUtf8(cp);
+        copyBtn.onclick = function() { navigator.clipboard.writeText('U+' + hex); };
+      }
+
+      function toUtf8(cp) {
+        var encoder = new TextEncoder();
+        var bytes = encoder.encode(String.fromCodePoint(cp));
+        return Array.prototype.map.call(bytes, function(b) { return b.toString(2).padStart(8, '0'); }).join(' ');
+      }
+
+      modalClose.addEventListener('click', function() { modal.classList.add('hidden'); });
+      modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.add('hidden'); });
+    })();
+  </script>
+</body>
+</html>
